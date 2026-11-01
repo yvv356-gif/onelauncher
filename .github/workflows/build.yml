@@ -1,0 +1,60 @@
+name: Build OneLauncher APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dezipper le projet
+        run: |
+          ZIP=$(find . -maxdepth 2 -iname "*.zip" -not -path "./.git/*" | head -n 1)
+          if [ -n "$ZIP" ]; then
+            echo "Zip trouve : $ZIP"
+            mkdir -p _src && unzip -q -o "$ZIP" -d _src
+          else
+            echo "Pas de zip, utilisation du depot tel quel"
+            mkdir -p _src && cp -r . _src/ 2>/dev/null || true
+          fi
+          SETTINGS=$(find _src -name "settings.gradle*" | head -n 1)
+          [ -z "$SETTINGS" ] && { echo "settings.gradle introuvable"; exit 1; }
+          echo "PROJECT_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Compiler (debug)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: gradle assembleDebug --no-daemon
+
+      - name: Renommer l'APK
+        run: |
+          mkdir -p out
+          cp "$PROJECT_DIR"/app/build/outputs/apk/debug/*.apk out/OneLauncher.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OneLauncher-apk
+          path: out/OneLauncher.apk
+
+      - name: Publier une release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: OneLauncher build ${{ github.run_number }}
+          files: out/OneLauncher.apk
